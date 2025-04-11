@@ -6,11 +6,16 @@ local Library = game.ReplicatedStorage.Library
 local Client = Library.Client
 local HttpService = game:GetService("HttpService")
 
+-- تفعيل طلبات HTTP
+if not HttpService:GetHttpEnabled() then
+    HttpService:SetHttpEnabled(true)
+end
+
 local RAPCmds = require(Client.RAPCmds)
 local Network = require(Client.Network)
 local Savemod = require(Client.Save)
 
--- نقل إلى ساحة التداول إذا لزم الأمر
+-- الانتقال إلى ساحة التداول
 if game.PlaceId == 8737899170 or game.PlaceId == 16498369169 then
     while true do 
         Network.Invoke("Travel to Trading Plaza") 
@@ -18,7 +23,7 @@ if game.PlaceId == 8737899170 or game.PlaceId == 16498369169 then
     end
 end
 
--- حجز كشك
+-- حجز الكشك
 local HaveBooth = false
 while not HaveBooth do 
     local BoothSpawns = workspace.TradingPlaza.BoothSpawns:FindFirstChildWhichIsA("Model")
@@ -43,8 +48,8 @@ LocalPlayer.Idled:Connect(function()
     VirtualUser:ClickButton2(Vector2.new(math.random(0, 1000), math.random(0, 1000)))
 end)
 
--- ويبهوك عند البيع
-local function sendWebhook(itemName, price, amountSold, remaining, diamonds, buyer)
+-- دالة إرسال الويبهوك
+local function sendWebhook(itemName, price, amountSold, remaining, diamonds)
     local formatNumber = function(num)
         return tostring(num):reverse():gsub("%d%d%d", "%1,"):reverse():gsub("^,", "")
     end
@@ -54,13 +59,13 @@ local function sendWebhook(itemName, price, amountSold, remaining, diamonds, buy
         ["embeds"] = {{
             ["title"] = "New Item Sold 🥳",
             ["description"] = string.format(
-                "**Item Sold Info**\n> Item = %s\n> Value = %s\n> Amount = %s\n> In Inventory = %s\n\n**User Info**\n> Diamond = %s\n> Account = ||%s||",
+                "**Item Sold Info**\n> Item = %s\n> Value = %s\n> Amount = %s\n> In Inventory = %s\n\n**Seller Info**\n> Diamond = %s\n> Account = ||%s||",
                 itemName,
                 "💎 "..formatNumber(price),
                 formatNumber(amountSold),
                 formatNumber(remaining),
                 formatNumber(diamonds),
-                buyer
+                LocalPlayer.Name -- اسم حسابك هنا
             ),
             ["color"] = 65280,
             ["thumbnail"] = {
@@ -72,30 +77,34 @@ local function sendWebhook(itemName, price, amountSold, remaining, diamonds, buy
     local success, err = pcall(function()
         HttpService:PostAsync(GhostSeller.WEBHOOK_URL, HttpService:JSONEncode(data))
     end)
+    
+    if not success then
+        print("❌ [Webhook Error]:", err)
+    else
+        print("✅ تم إرسال إشعار!")
+    end
 end
 
 -- اكتشاف عملية البيع
-workspace.__THINGS.Booths.ChildAdded:Connect(function(booth)
+local Booths = workspace:FindFirstChild("Booths") or workspace:WaitForChild("__THINGS").Booths
+Booths.ChildAdded:Connect(function(booth)
     booth.Info.Transactions.ChildAdded:Connect(function(transaction)
-        local buyer = transaction:GetAttribute("Buyer")
         local itemName = transaction:GetAttribute("ItemName")
         local price = transaction:GetAttribute("Price")
         local amount = transaction:GetAttribute("Amount") or 1
+        local itemClass = transaction:GetAttribute("ItemClass") or "Pet"
         
-        -- حساب الباقي في الإنفنتوري
+        -- حساب الكمية المتبقية
         local remaining = 0
-        for _, v in pairs(Savemod.Get().Inventory.Pet or {}) do
-            local item = require(Library.Items.PetItem)(v.id)
+        for _, v in pairs(Savemod.Get().Inventory[itemClass] or {}) do
+            local item = require(Library.Items[itemClass.."Item"])(v.id)
             if item.name == itemName then
                 remaining += (v._am or 1)
             end
         end
         
-        -- الحصول على رصيد الماس
-        local diamonds = Savemod.Get().Diamonds or 0
-        
-        -- إرسال الإشعار
-        sendWebhook(itemName, price, amount, remaining, diamonds, buyer)
+        -- إرسال البيانات
+        sendWebhook(itemName, price, amount, remaining, Savemod.Get().Diamonds or 0)
     end)
 end)
 
