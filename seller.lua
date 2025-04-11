@@ -50,24 +50,53 @@ if (game.PlaceId == 8737899170 or game.PlaceId == 16498369169) and Config.AutoTe
 end
 
 -- Booth Claiming System --
+-- Replace the ClaimBooth function with this improved version:
 local function ClaimBooth()
     local foundBooth = false
+    local attempts = 0
+    local maxAttempts = 30 -- 30 second timeout
+    
     repeat
-        local boothSpawns = workspace.TradingPlaza.BoothSpawns:FindFirstChildWhichIsA("Model")
-        for _, booth in ipairs(workspace.__THINGS.Booths:GetChildren()) do
-            if booth:FindFirstChild("Info") and booth.Info.BoothBottom.Frame.Top.Text:match(LocalPlayer.DisplayName) then
-                LocalPlayer.Character.HumanoidRootPart.CFrame = booth.Table.CFrame * Config.BoothPosition
-                foundBooth = true
-                break
-            end
+        -- Wait for critical game elements
+        if not workspace:FindFirstChild("TradingPlaza") then
+            task.wait(1)
+            continue
         end
         
-        if not foundBooth and boothSpawns then
-            LocalPlayer.Character.HumanoidRootPart.CFrame = boothSpawns.Table.CFrame * Config.BoothPosition
-            Network.Invoke("Booths_ClaimBooth", tostring(boothSpawns:GetAttribute("ID")))
+        local boothSpawns = workspace.TradingPlaza.BoothSpawns:FindFirstChildWhichIsA("Model")
+        if not boothSpawns then
+            task.wait(1)
+            continue
         end
+
+        -- Check existing booths
+        for _, booth in ipairs(workspace.__THINGS.Booths:GetChildren()) do
+            if booth:FindFirstChild("Info") then
+                local boothText = booth.Info.BoothBottom.Frame.Top.Text
+                if boothText:match(LocalPlayer.DisplayName) then
+                    LocalPlayer.Character.HumanoidRootPart.CFrame = booth.Table.CFrame * Config.BoothPosition
+                    foundBooth = true
+                    break
+                end
+            end
+        end
+
+        -- Claim new booth if needed
+        if not foundBooth then
+            LocalPlayer.Character.HumanoidRootPart.CFrame = boothSpawns.Table.CFrame * Config.BoothPosition
+            pcall(function()
+                Network.Invoke("Booths_ClaimBooth", tostring(boothSpawns:GetAttribute("ID")))
+            end)
+        end
+
+        attempts += 1
         task.wait(1)
-    until foundBooth
+    until foundBooth or attempts >= maxAttempts
+    
+    if not foundBooth then
+        warn("Failed to claim booth after", maxAttempts, "attempts")
+    end
+    return foundBooth
 end
 
 -- Anti AFK System --
