@@ -20,84 +20,76 @@ local RAPCmds = require(Client.RAPCmds)
 local Network = require(Client.Network)
 local Savemod = require(Client.Save)
 
--- Helper Functions --
-local function GetItemId(ClassName, ItemName)
-    local success, items = pcall(function()
-        return require(Library.Items[ClassName .. "Item"]).GetAll()
-    end)
-    if not success then return nil end
-    
-    for id, data in pairs(items) do
-        if data.name:lower() == ItemName:lower() then
-            return id
-        end
-    end
+-- Improved Booth Claiming System --
+local function SafeWaitForChild(parent, childName, timeout)
+    local endTime = os.time() + (timeout or 30)
+    repeat
+        local child = parent:FindFirstChild(childName)
+        if child then return child end
+        task.wait(1)
+    until os.time() > endTime
     return nil
 end
 
-local function ConvertPrice(Price, Rap)
-    if type(Price) == "string" then
-        local percentage = tonumber(Price:match("^(%d+)%%"))
-        return percentage and (Rap * percentage/100) or Rap
-    end
-    return tonumber(Price) or Rap
-end
-
--- Auto Teleport Handler --
-if (game.PlaceId == 8737899170 or game.PlaceId == 16498369169) and Config.AutoTeleport then
-    Network.Invoke("Travel to Trading Plaza")
-    task.wait(3)
-end
-
--- Booth Claiming System --
--- Replace the ClaimBooth function with this improved version:
 local function ClaimBooth()
-    local foundBooth = false
+    local maxAttempts = 30 -- 30 attempts max
     local attempts = 0
-    local maxAttempts = 30 -- 30 second timeout
     
+    -- Wait for Trading Plaza to load
+    local tradingPlaza = SafeWaitForChild(workspace, "TradingPlaza", 60)
+    if not tradingPlaza then 
+        warn("Failed to find Trading Plaza")
+        return false
+    end
+
     repeat
-        -- Wait for critical game elements
-        if not workspace:FindFirstChild("TradingPlaza") then
-            task.wait(1)
-            continue
-        end
+        attempts += 1
         
-        local boothSpawns = workspace.TradingPlaza.BoothSpawns:FindFirstChildWhichIsA("Model")
-        if not boothSpawns then
+        -- Wait for Character
+        if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
             task.wait(1)
             continue
         end
 
-        -- Check existing booths
-        for _, booth in ipairs(workspace.__THINGS.Booths:GetChildren()) do
+        -- Find Existing Booth
+        local myBooth
+        local booths = workspace.__THINGS.Booths:GetChildren()
+        for _, booth in ipairs(booths) do
             if booth:FindFirstChild("Info") then
                 local boothText = booth.Info.BoothBottom.Frame.Top.Text
-                if boothText:match(LocalPlayer.DisplayName) then
-                    LocalPlayer.Character.HumanoidRootPart.CFrame = booth.Table.CFrame * Config.BoothPosition
-                    foundBooth = true
+                if boothText:find(LocalPlayer.DisplayName, 1, true) then
+                    myBooth = booth
                     break
                 end
             end
         end
 
-        -- Claim new booth if needed
-        if not foundBooth then
-            LocalPlayer.Character.HumanoidRootPart.CFrame = boothSpawns.Table.CFrame * Config.BoothPosition
-            pcall(function()
-                Network.Invoke("Booths_ClaimBooth", tostring(boothSpawns:GetAttribute("ID")))
-            end)
+        -- Move to Booth if Found
+        if myBooth then
+            LocalPlayer.Character.HumanoidRootPart.CFrame = myBooth.Table.CFrame * Config.BoothPosition
+            return true
         end
 
-        attempts += 1
-        task.wait(1)
-    until foundBooth or attempts >= maxAttempts
-    
-    if not foundBooth then
-        warn("Failed to claim booth after", maxAttempts, "attempts")
-    end
-    return foundBooth
+        -- Claim New Booth
+        local boothSpawns = SafeWaitForChild(tradingPlaza, "BoothSpawns", 10)
+        if boothSpawns then
+            local spawnPoint = boothSpawns:FindFirstChildWhichIsA("Model")
+            if spawnPoint then
+                LocalPlayer.Character.HumanoidRootPart.CFrame = spawnPoint.Table.CFrame * Config.BoothPosition
+                pcall(function()
+                    Network.Invoke("Booths_ClaimBooth", tostring(spawnPoint:GetAttribute("ID")))
+                end)
+            end
+        end
+
+        task.wait(2)
+    until attempts >= maxAttempts
+
+    warn("Failed to claim booth after", maxAttempts, "attempts")
+    return false
 end
+
+-- بقية الكود بدون تغيير (Anti AFK, Webhook, etc.) --
 
 -- Anti AFK System --
 local VirtualUser = game:GetService("VirtualUser")
