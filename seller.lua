@@ -52,7 +52,7 @@ local SendWebhook = function(itemName, price, amount)
 
     local success, err = pcall(function()
         syn.request({
-            Url = GhostSniper.WebhookUrl,
+            Url = getenv().GhostSniper.WebhookUrl,
             Method = "POST",
             Headers = { ["Content-Type"] = "application/json" },
             Body = HttpService:JSONEncode(data)
