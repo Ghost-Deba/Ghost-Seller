@@ -1,17 +1,6 @@
--- GhostSeller.lua
 repeat task.wait() until game:IsLoaded()
 local LocalPlayer = game:GetService("Players").LocalPlayer
 repeat task.wait() until not LocalPlayer.PlayerGui:FindFirstChild("__INTRO")
-
--- Configuration Check --
-if not getgenv().Config then
-    getgenv().Config = {
-        AutoTeleport = true,
-        BoothPosition = CFrame.new(5, 0, 0),
-        Webhook = "",
-        Prices = {}
-    }
-end
 
 local Library = game.ReplicatedStorage.Library
 local Client = Library.Client
@@ -20,199 +9,84 @@ local RAPCmds = require(Client.RAPCmds)
 local Network = require(Client.Network)
 local Savemod = require(Client.Save)
 
--- Improved Booth Claiming System --
-local function SafeWaitForChild(parent, childName, timeout)
-    local endTime = os.time() + (timeout or 30)
-    repeat
-        local child = parent:FindFirstChild(childName)
-        if child then return child end
-        task.wait(1)
-    until os.time() > endTime
-    return nil
-end
-
-local function ClaimBooth()
-    local maxAttempts = 30 -- 30 attempts max
-    local attempts = 0
-    
-    -- Wait for Trading Plaza to load
-    local tradingPlaza = SafeWaitForChild(workspace, "TradingPlaza", 60)
-    if not tradingPlaza then 
-        warn("Failed to find Trading Plaza")
-        return false
+if game.PlaceId == 8737899170 or game.PlaceId == 16498369169 then
+    while true do 
+        Network.Invoke("Travel to Trading Plaza") task.wait(1) 
     end
-
-    repeat
-        attempts += 1
-        
-        -- Wait for Character
-        if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
-            task.wait(1)
-            continue
-        end
-
-        -- Find Existing Booth
-        local myBooth
-        local booths = workspace.__THINGS.Booths:GetChildren()
-        for _, booth in ipairs(booths) do
-            if booth:FindFirstChild("Info") then
-                local boothText = booth.Info.BoothBottom.Frame.Top.Text
-                if boothText:find(LocalPlayer.DisplayName, 1, true) then
-                    myBooth = booth
-                    break
-                end
-            end
-        end
-
-        -- Move to Booth if Found
-        if myBooth then
-            LocalPlayer.Character.HumanoidRootPart.CFrame = myBooth.Table.CFrame * Config.BoothPosition
-            return true
-        end
-
-        -- Claim New Booth
-        local boothSpawns = SafeWaitForChild(tradingPlaza, "BoothSpawns", 10)
-        if boothSpawns then
-            local spawnPoint = boothSpawns:FindFirstChildWhichIsA("Model")
-            if spawnPoint then
-                LocalPlayer.Character.HumanoidRootPart.CFrame = spawnPoint.Table.CFrame * Config.BoothPosition
-                pcall(function()
-                    Network.Invoke("Booths_ClaimBooth", tostring(spawnPoint:GetAttribute("ID")))
-                end)
-            end
-        end
-
-        task.wait(2)
-    until attempts >= maxAttempts
-
-    warn("Failed to claim booth after", maxAttempts, "attempts")
-    return false
 end
 
--- بقية الكود بدون تغيير (Anti AFK, Webhook, etc.) --
+local GetRap = function(Class, ItemTable)
+    local Item = require(Library.Items[Class .. "Item"])(ItemTable.id)
 
--- Anti AFK System --
+    if ItemTable.sh then Item:SetShiny(true) end
+    if ItemTable.pt == 1 then Item:SetGolden() end
+    if ItemTable.pt == 2 then Item:SetRainbow() end
+    if ItemTable.tn then Item:SetTier(ItemTable.tn) end
+
+    return RAPCmds.Get(Item) or 0
+end
+
+local ConvertPrice = function(Price, Rap)
+    if type(Price) == "string" then
+        local Percentage = tonumber(Price:match("^(%d+)%%"))
+        if Percentage then
+            return (Percentage / 100) * Rap
+        end
+    end
+    return Price
+end
+
+-- Claim Booth
+local HaveBooth = false
+while not HaveBooth do 
+    local BoothSpawns = game.workspace.TradingPlaza.BoothSpawns:FindFirstChildWhichIsA("Model")
+    for _, Booth in ipairs(workspace.__THINGS.Booths:GetChildren()) do
+        if Booth:IsA("Model") and Booth.Info.BoothBottom.Frame.Top.Text == LocalPlayer.DisplayName .. "'s Booth!" then
+            HaveBooth = true
+            LocalPlayer.Character.HumanoidRootPart.CFrame = Booth.Table.CFrame * CFrame.new(5, 0, 0)
+            break
+        end
+    end
+    if not HaveBooth then
+        LocalPlayer.Character.HumanoidRootPart.CFrame = BoothSpawns.Table.CFrame * CFrame.new(5, 0, 0)
+        Network.Invoke("Booths_ClaimBooth", tostring(BoothSpawns:GetAttribute("ID")))
+    end
+end
+
+-- Anti AFK
 local VirtualUser = game:GetService("VirtualUser")
-LocalPlayer.Idled:Connect(function()
-    VirtualUser:ClickButton2(Vector2.new(math.random(), math.random()))
-end)
+for _, v in pairs(getconnections(LocalPlayer.Idled)) do v:Disable() end
+LocalPlayer.Idled:Connect(function() VirtualUser:ClickButton2(Vector2.new(math.random(0, 1000), math.random(0, 1000))) end)
 
--- Network Protection --
-local originalNamecall
-originalNamecall = hookmetamethod(game, "__namecall", function(self, ...)
-    if not checkcaller() and table.find({"Server Closing", "Move Server"}, tostring(self)) then
-        return nil
+old = hookmetamethod(game, "__namecall", function(self, ...)
+    local method = getnamecallmethod()
+    if not checkcaller() then
+        local Name = tostring(self)
+        if table.find({"Server Closing", "Idle Tracking: Update Timer", "Move Server"}, Name) then
+            return nil
+        end
     end
-    return originalNamecall(self, ...)
+    return old(self, ...)
 end)
+Network.Fire("Idle Tracking: Stop Timer")
 
--- Webhook Notification System --
-local function SendSaleNotification(ItemName, TotalPrice, SoldAmount, Remaining)
-    if Config.Webhook == "" then return end
-    
-    local HttpService = game:GetService("HttpService")
-    local formattedPrice = tostring(TotalPrice):reverse():gsub("%d%d%d", "%1,"):reverse():gsub("^,", "")
-    local diamonds = Savemod.Get().Diamonds
-    
-    local embed = {
-        {
-            title = "🛍️ New Item Sold!",
-            color = 65280,
-            fields = {
-                {
-                    name = "Item Details",
-                    value = string.format("```Name: %s\nAmount: %d\nTotal: %s```", 
-                        ItemName, 
-                        SoldAmount, 
-                        formattedPrice
-                    ),
-                    inline = true
-                },
-                {
-                    name = "Player Stats",
-                    value = string.format("```Diamonds: %s\nRemaining: %d```",
-                        tostring(diamonds):reverse():gsub("%d%d%d", "%1,"):reverse():gsub("^,", ""),
-                        Remaining
-                    ),
-                    inline = true
-                }
-            },
-            footer = {text = "Seller: " .. LocalPlayer.DisplayName},
-            timestamp = DateTime.now():ToIsoDate()
-        }
-    }
-    
-    pcall(function()
-        HttpService:PostAsync(Config.Webhook, HttpService:JSONEncode({
-            embeds = embed,
-            username = "Ghost Seller"
-        }))
-    end)
-end
-
--- Main Selling Logic --
-ClaimBooth()
-
-while task.wait(5) do
-    local sellQueue = {}
-    
-    -- Process Inventory
-    for classType, items in pairs(Savemod.Get().Inventory) do
-        if Config.Prices[classType] then
-            for uuid, itemData in pairs(items) do
-                local itemName = require(Library.Items[classType .. "Item"])(itemData.id).name
-                local configData = Config.Prices[classType][itemName]
-                
-                if configData then
-                    local matchProperties = (
-                        configData.pt == itemData.pt and
-                        configData.sh == itemData.sh and
-                        (configData.tn or 0) == (itemData.tn or 0)
-                    
-                    if matchProperties then
-                        local rapValue = RAPCmds.Get(require(Library.Items[classType .. "Item"])(itemData.id))
-                        table.insert(sellQueue, {
-                            uuid = uuid,
-                            class = classType,
-                            data = itemData,
-                            name = itemName,
-                            price = ConvertPrice(configData.Price, rapValue),
-                            rap = rapValue
-                        })
-                    end
+-- List Booth
+while task.wait(5) do 
+    local BoothQueue = {}
+    for Class, Items in pairs(Savemod.Get().Inventory) do
+        if HippoSeller.Items[Class] then
+            for _, v in pairs(Items) do
+                local Item = HippoSeller.Items[Class][v.id]
+                if Item and Item.pt == v.pt and Item.sh == v.sh and Item.tn == v.tn then
+                    table.insert(BoothQueue, {Price = Item.Price, UUID = _, Item = v, Rap = GetRap(Class, v)})
                 end
             end
         end
     end
+    table.sort(BoothQueue, function(a, b) return a.Rap > b.Rap end)
     
-    -- Sort by RAP Descending
-    table.sort(sellQueue, function(a,b) return a.rap > b.rap end)
-    
-    -- Create Listings
-    for _, item in ipairs(sellQueue) do
-        local maxAmount = math.min(item.data._am or 1, math.floor(25e9 / item.price))
-        local originalAmount = item.data._am
-        
-        Network.Invoke("Booths_CreateListing", item.uuid, math.ceil(item.price), maxAmount)
-        
-        -- Track Sales
-        spawn(function()
-            local startTime = os.time()
-            while os.time() - startTime < 60 do
-                local currentAmount = Savemod.Get().Inventory[item.class][item.uuid]?._am or 0
-                if currentAmount < originalAmount then
-                    SendSaleNotification(
-                        item.name,
-                        item.price * (originalAmount - currentAmount),
-                        originalAmount - currentAmount,
-                        currentAmount
-                    )
-                    break
-                end
-                task.wait(5)
-            end
-        end)
-        
-        task.wait(1)
+    for _, v in ipairs(BoothQueue) do
+        local MaxAmount = math.min(v.Item._am or 1, 15000, math.floor(25e9 / ConvertPrice(v.Price, v.Rap)))
+        Network.Invoke("Booths_CreateListing", v.UUID, math.ceil(ConvertPrice(v.Price, v.Rap)), MaxAmount) task.wait(1)
     end
-    end
+end
