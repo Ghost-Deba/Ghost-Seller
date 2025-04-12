@@ -70,7 +70,7 @@ local function sendWebhook(itemName, price, amountSold, remaining, diamonds, buy
     }
     
 request({
-                        Url = getgenv().Ghost Seller.WEBHOOK_URL,
+                        Url = getgenv().GhostSeller.WEBHOOK_URL,
                         Method = "POST",
                         Headers = {["Content-Type"] = "application/json"},
                         Body = HttpService:JSONEncode(data)
