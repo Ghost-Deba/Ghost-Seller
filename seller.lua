@@ -76,6 +76,7 @@ request({
                         Body = HttpService:JSONEncode(data)
                     })
 end
+end
 
 -- Detect Sell 
 workspace.__THINGS.Booths.ChildAdded:Connect(function(booth)
