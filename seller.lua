@@ -69,13 +69,9 @@ local function sendWebhook(itemName, price, amountSold, remaining, diamonds, buy
         }}
     }
     
-request({
-                        Url = getgenv().GhostSeller.WEBHOOK_URL,
-                        Method = "POST",
-                        Headers = {["Content-Type"] = "application/json"},
-                        Body = HttpService:JSONEncode(data)
-                    })
-end
+    local success, err = pcall(function()
+        HttpService:PostAsync(GhostSeller.WEBHOOK_URL, HttpService:JSONEncode(data))
+    end)
 end
 
 -- Detect Sell 
